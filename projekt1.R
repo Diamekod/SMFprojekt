@@ -21,6 +21,8 @@ library(mvtnorm)
 # - generowanie parametrów na podstawie danych: zwraca listę średnich, macierz cov, ceny spot oraz parametrów wyznaczających miarę martyngałową
 #   przyjmując długość odcinka do estymacji (w dniach), interwał zbierania danych (domyślnie 1 dzień) i moment na który liczymy (domyślnie 0 - koniec danych), oraz r
 # - generowanie jednej trajektorii dla zadanych parametrów - dwie metody.
+# Uwaga: przy generowaniu trajektorii mamy losować z rozkładu normalnego (standardowego, potem innego), a następnie je modyfikować
+# Matematycznie to jest to samo, co losowanie ze zmodyfikowanego rozkładu normalnego. Tak zrobimy.
 # - Funkcja 'apply' biorąca payoff i estymatory, generuje n (10000) trajektorii, wylicza średni payoff
 
 # Parametry mają format:
@@ -31,16 +33,6 @@ library(mvtnorm)
 # = macierz kowariancji mtg
 # = pochodna R-N
 # = r
-
-v=c(1,2,3)
-x=list(v,a)
-
-g=function(y){
-  f=function(x){x+y}
-  return(f)
-}
-b=g(3)
-b(4)
 
 r = 0.01349
 #=========Funkcje==================
@@ -94,7 +86,48 @@ payapply=function(par,t,dt=1,method=1,payoff,assets=1,r=0,N=10000){
   return(res)
 }
 #=========estim=======================
-estim=function(data,t,)
+estim=function(pricedata,t,dt,r,t_spot=0){
+  # data - każda kolumna zawiera wektor cen (zamknięcia) danego aktywa
+  # t - w dniach okres z którego estymujemy
+  # dt - interwał w dniach
+  # t_spot - liczba (w dniach) od końca danych na kiedy estymujemy
+  # wszystkie 
+  N=ncol(pricedata)
+  end=nrow(pricedata)
+  amount=t*dt
+  pricedata=pricedata[(end-t_spot*dt-amount):(end-t_spot*dt),]
+  end=nrow(pricedata)
+  # mu_c - dryfy historyczne
+  mu_c=c()
+  si_c=c()
+  # rho - macierz kowariancji do generowania miary inwestora
+  rho=matrix(0,nrow=N,ncol=N)
+  ret=matrix(0,ncol=N,nrow=nrow(pricedata)-1)
+  for(i in 1:N){
+    ret[,i]=log(pricedata[-1,i]/pricedata[-end,i])
+    mu_c[i]=mean(ret[,i])
+    si_c=sd(ret[,i])
+  }
+  for(i in 1:N){
+    for (j in i:N){
+      rho[i,j]=rho[j,i]=cor(ret[,i],y=ret[,j])
+    }
+  }
+  diag(rho)=1
+  # Właściwe ustalenie rho, żeby mozna było generować:
+  for(i in 1:N){
+    rho[i,]=rho[i,]*si_c[i]
+    rho[,i]=rho[,i]*si_c[i]
+  }
+  # Ceny spot:
+  spotprice=pricedata[end,]
+  # Jak obliczamy martyngalowe średnie i zmienności:
+  mu_mtg=0
+  si_mtg=0
+  
+  si_mtg_matrix=matrix(0,ncol=N,nrow=N)
+  
+}
 #=========Moje testy==================
 payoffcall=function(strike){
   f=function(x){
@@ -120,18 +153,18 @@ si_c*sqrt(250)
 # parametry mtg:
 r=0.0153
 r_d=r/250
-mu_mtg=-mu_c/si_c
-si_mtg=sqrt(2*r_d)/si_c
+mu_mtg=0
+si_mtg=sqrt(2*r_d)
 si_mtg
 # Inna wersja - zadajemy zmienność. Wtedy dryf robi się strasznie duży:
 si_mtg2=0.01
 mu_mtg2=(r_d-mu_c-(si_c^2*si_mtg2^2)/2)/si_c
 
-p_c=list(0,0,wig20[311,2],mu_c,matrix(si_c^2,nrow=1,ncol=1))
-p_mtg=list(0,0,wig20[311,2],mu_mtg,matrix(si_mtg^2,nrow=1,ncol=1))
-p_mtg2=list(0,0,wig20[311,2],mu_mtg2,matrix(si_mtg2^2,nrow=1,ncol=1))
+p_c=list(0,0,wig20[311,5],mu_c,matrix(si_c^2,nrow=1,ncol=1))
+p_mtg=list(0,0,wig20[311,5],mu_mtg,matrix(si_mtg^2,nrow=1,ncol=1))
+p_mtg2=list(0,0,wig20[311,5],mu_mtg2,matrix(si_mtg2^2,nrow=1,ncol=1))
 
-p=p_c
+p=p_mtg
 pay=c()
 for(i in 1:5000){
   t=gentraj(p,180,1,1)[101,1]
@@ -162,6 +195,13 @@ t(t(a)*c(1,2))
 apply(a,2,cumsum)
 
 #=========Stare testy==================
+g=function(y){
+  f=function(x){x+y}
+  return(f)
+}
+b=g(3)
+b(4)
+
 optionprice=function(strike,traj)
 
   
