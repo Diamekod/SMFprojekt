@@ -23,13 +23,14 @@ library(mvtnorm)
 # - generowanie jednej trajektorii dla zadanych parametrów - dwie metody.
 # Uwaga: przy generowaniu trajektorii mamy losować z rozkładu normalnego (standardowego, potem innego), a następnie je modyfikować
 # Matematycznie to jest to samo, co losowanie ze zmodyfikowanego rozkładu normalnego. Tak zrobimy.
-# - Funkcja 'apply' biorąca payoff i estymatory, generuje n (10000) trajektorii, wylicza średni payoff
+# - Funkcja 'apply' biorąca payoff i estymatory, generuje n (10000) trajektorii, wylicza średni payoff zdyskontowany
 
 # Parametry mają format:
 # = dryf
-# = macierz kowariancji
+# = historyczna zmienność
+# = macierz kowariancji (miary inwestora)
 # = ceny spot
-# = średnie mtg
+# = średnie mtg (== 0)
 # = macierz kowariancji mtg
 # = pochodna R-N
 # = r
@@ -40,9 +41,9 @@ r = 0.01349
 gentraj=function(par,t,dt,method){
   # Metoda generowania wprost z miary mtg
   if(method==1){
-    mu=par[[4]]
-    si=par[[5]]
-    pricestart=par[[3]]
+    mu=par[[5]]
+    si=par[[6]]
+    pricestart=par[[4]]
     # s_{i+1}=s_i*exp(N)
     # generujemy N z odpowiedniego rozkładu, żeby było mtg
     amount=t/dt
@@ -56,8 +57,12 @@ gentraj=function(par,t,dt,method){
     res[-1,]=t(t(rand)*pricestart)
     return(res)
   }
-  return(0)
+  if(method==2){
+    
+  }
+  return(NULL)
 }
+
 m=c(0.1/200,0.15/200)
 m=c(0,0)
 s1=0.16/200
@@ -74,9 +79,10 @@ exp(s1*100)
 
 test=gentraj(p,100,1,1)[101,]
 #=========payapply=================
-payapply=function(par,t,dt=1,method=1,payoff,assets=1,r=0,N=10000){
+payapply=function(par,t,dt=1,method=1,payoff,assets=1,N=10000){
   day=1/251
   res=c()
+  r=par[[8]]
   for(i in 1:N){
     traj=gentraj(par,t,dt,method)
     pay=payoff(traj[,assets])
@@ -86,21 +92,29 @@ payapply=function(par,t,dt=1,method=1,payoff,assets=1,r=0,N=10000){
   return(res)
 }
 #=========estim=======================
-estim=function(pricedata,t,dt,r,t_spot=0){
+estim=function(pricedata,r,t=0,dt=1,t_spot=0){
   # data - każda kolumna zawiera wektor cen (zamknięcia) danego aktywa
   # t - w dniach okres z którego estymujemy
   # dt - interwał w dniach
   # t_spot - liczba (w dniach) od końca danych na kiedy estymujemy
-  # wszystkie 
+  # wszystkie
+  day=1/250
   N=ncol(pricedata)
+  #print(N)
   end=nrow(pricedata)
+  #print(end)
   amount=t*dt
-  pricedata=pricedata[(end-t_spot*dt-amount):(end-t_spot*dt),]
-  end=nrow(pricedata)
+  if(amount==0){
+    amount = end-1
+  }
+  pricedata_tmp=as.matrix(pricedata[(end-t_spot*dt-amount):(end-t_spot*dt),])
+  end=nrow(pricedata_tmp)
+  #print(pricedata_tmp)
   # mu_c - dryfy historyczne
   mu_c=c()
   si_c=c()
-  # rho - macierz kowariancji do generowania miary inwestora
+  # rho na razie zawiera tylko korelacje między aktywami
+  # Przemnożenie przez zmienności, żeby mieć macierz do generowania nastąpi później
   rho=matrix(0,nrow=N,ncol=N)
   ret=matrix(0,ncol=N,nrow=nrow(pricedata)-1)
   for(i in 1:N){
@@ -114,19 +128,27 @@ estim=function(pricedata,t,dt,r,t_spot=0){
     }
   }
   diag(rho)=1
-  # Właściwe ustalenie rho, żeby mozna było generować:
-  for(i in 1:N){
-    rho[i,]=rho[i,]*si_c[i]
-    rho[,i]=rho[,i]*si_c[i]
-  }
   # Ceny spot:
   spotprice=pricedata[end,]
-  # Jak obliczamy martyngalowe średnie i zmienności:
-  mu_mtg=0
-  si_mtg=0
-  
-  si_mtg_matrix=matrix(0,ncol=N,nrow=N)
-  
+  # Parametry zwrotu w mierze mtg (po uproszczeniu):
+  mu_mtg=rep(0,N)
+  si_mtg=rho
+  si_mtg=si_mtg*2*r*dt*day
+  # Pochodna R-N wykorzystuje gęstość rozkładów normalnych:
+  # standardowego i pochodzącego z miary mtg. Ale nie jest to rozkład z parametrami wyżej, tylko 
+  # Parametry miary Q do pochodnej RN:
+  mu_qrn=-mu_c/si_c
+  si_q=sqrt(2*r*dt*day)/si_c
+  si_qrn=rho
+  for(i in 1:N){
+    si_qrn[i,]=si_qrn[i,]*si_q
+    si_qrn[,i]=si_qrn[,i]*si_q
+  }
+  dqdp=function(x){
+    dmvnorm(x,mu_qrn,si_qrn)/dmvnorm(x)
+  }
+  res=list(mu_c,si_c,rho,spotprice,mu_mtg,si_mtg,dqdp,r)
+  return(res)
 }
 #=========Moje testy==================
 payoffcall=function(strike){
@@ -142,7 +164,15 @@ payofftest=payoffcall(2200)
 setwd("./")
 wig20 <- read.csv(file = 'wig20_koniec_2803.csv', sep=',')
 #125:311
+r=0.0135
 wig=wig20[124:311,5]
+wig_m=matrix(wig,ncol=1)
+param=estim(pricedata=wig_m,r)
+t1=gentraj(param,150,1,1)
+call2200=payapply(param,150,payoff=payofftest)
+mean(call2200)
+
+
 #przyrosty:
 pr=wig[-1]/wig[-length(wig)]
 pr=log(pr)
@@ -160,9 +190,9 @@ si_mtg
 si_mtg2=0.01
 mu_mtg2=(r_d-mu_c-(si_c^2*si_mtg2^2)/2)/si_c
 
-p_c=list(0,0,wig20[311,5],mu_c,matrix(si_c^2,nrow=1,ncol=1))
-p_mtg=list(0,0,wig20[311,5],mu_mtg,matrix(si_mtg^2,nrow=1,ncol=1))
-p_mtg2=list(0,0,wig20[311,5],mu_mtg2,matrix(si_mtg2^2,nrow=1,ncol=1))
+p_c=list(0,0,0,wig20[311,5],mu_c,matrix(si_c^2,nrow=1,ncol=1))
+p_mtg=list(0,0,0,wig20[311,5],mu_mtg,matrix(si_mtg^2,nrow=1,ncol=1))
+p_mtg2=list(0,0,0,wig20[311,5],mu_mtg2,matrix(si_mtg2^2,nrow=1,ncol=1))
 
 p=p_mtg
 pay=c()
