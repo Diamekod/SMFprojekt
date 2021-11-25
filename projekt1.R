@@ -157,21 +157,112 @@ payoffcall=function(strike){
     return(max(c(last-strike,0)))
   }
 }
+calluao=function(strike,bar){
+  f=function(x){
+    last=x[length(x)]
+    if(max(x)>=strike+bar){
+      return(0)
+    }
+    return(max(c(last-strike,0)))
+  }
+}
+calluai=function(strike,bar){
+  f=function(x){
+    last=x[length(x)]
+    if(max(x)>=strike+bar){
+      return(max(c(last-strike,0)))
+    }
+    return(0)
+  }
+}
+callpar=function(strike,bar,t){
+  f=function(x){
+    last=x[length(x)]
+    t_up=which(x>strike+bar)
+    cnt=1
+    n=length(t_up)-1
+    if(n<t) return(0)
+    #print(n)
+    for(i in 1:n){
+      if(t_up[i+1]==(t_up[i]+1)){
+        cnt=cnt+1
+      } else{
+        cnt=1
+      }
+      if(cnt==t) return(max(c(last-strike,0)))
+    }
+    return(0)
+  }
+}
+calllookback=function(strike){
+  f=function(x){
+    t=nrow(x)
+    if(x[t,2]>x[1,2]){
+      return(max(c(x[t,1]-min(x[,1]),0)))
+    }
+    return(0)
+  }
+}
+
 payofftest=payoffcall(2200)
+payoffpar=callpar(2200,200,10)
+payoffuao=calluao(2200,200)
+payoffuai=calluai(2200,200)
+payofflb=calllookback(2200)
+
 # Sposób wzięcia długości albo liczby wierszy:
 # min(c(nrow(spot),length(spot)))
-
 setwd("./")
 wig20 <- read.csv(file = 'wig20_koniec_2803.csv', sep=',')
+kghm <- read.csv(file = 'kgh_koniec_2803.csv', sep=',')
 #125:311
 r=0.0135
+texp=round(3/4*250)
 wig=wig20[124:311,5]
+kgh=kghm[124:311,5]
 wig_m=matrix(wig,ncol=1)
 param=estim(pricedata=wig_m,r)
-t1=gentraj(param,150,1,1)
-call2200=payapply(param,150,payoff=payofftest)
+
+t1=gentraj(param,texp,1,1)
+# EC up and out:
+call2200=payapply(param,texp,payoff=payoffuao)
 mean(call2200)
 
+library(fOptions)
+sbs=param[[2]]*sqrt(250)
+GBSOption('c',wig[188],2200,texp/250,r,r,sbs)@price
+
+wigkgh_m=matrix(c(wig,kgh),ncol=2)
+param2=estim(pricedata=wigkgh_m,r)
+t2=gentraj(param2,texp,1,1)
+# EC w modelu dwuaktywowym:
+mean(payapply(param2,texp,payoff=payofftest))
+# Opcja lookback:
+mean(payapply(param2,texp,payoff=payofflb,assets=c(1,2)))
+
+
+si=matrix(c(1,0.5,0.5,1),ncol=2)
+m=c(1,0.3)
+r=rmvnorm(10000,m,si)
+rmvnorm(3,0)
+sum(abs(colMeans(r)-m))
+
+a=matrix(1:6,ncol=2)
+a
+cor(a[,1],y=a[,2])
+a*c(1,2)
+# Przemnożenie przez stałe kolumnowo (tzn. kol. 1 przez stałą 1, itd.)
+t(t(a)*c(1,2))
+# Sumowanie kolumnowo:
+apply(a,2,cumsum)
+
+#=========Stare testy==================
+g=function(y){
+  f=function(x){x+y}
+  return(f)
+}
+b=g(3)
+b(4)
 
 #przyrosty:
 pr=wig[-1]/wig[-length(wig)]
@@ -203,36 +294,6 @@ for(i in 1:5000){
 mean(pay*exp(-r*0.75))
 te=gentraj(p,180,1,1)
 gentraj(p,180,1,1)
-
-
-wig20new <- read.csv(file = '1001.csv', sep=',')
-
-day=1/251
-
-si=matrix(c(1,0.5,0.5,1),ncol=2)
-m=c(1,0.3)
-r=rmvnorm(10000,m,si)
-rmvnorm(3,0)
-sum(abs(colMeans(r)-m))
-
-a=matrix(1:6,ncol=2)
-a
-cor(a[,1],y=a[,2])
-a*c(1,2)
-# Przemnożenie przez stałe kolumnowo (tzn. kol. 1 przez stałą 1, itd.)
-t(t(a)*c(1,2))
-# Sumowanie kolumnowo:
-apply(a,2,cumsum)
-
-#=========Stare testy==================
-g=function(y){
-  f=function(x){x+y}
-  return(f)
-}
-b=g(3)
-b(4)
-
-optionprice=function(strike,traj)
 
   
 cena <- wig20$Otwarcie
