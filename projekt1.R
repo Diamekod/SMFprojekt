@@ -62,22 +62,6 @@ gentraj=function(par,t,dt,method){
   }
   return(NULL)
 }
-
-m=c(0.1/200,0.15/200)
-m=c(0,0)
-s1=0.16/200
-s2=0.2/200
-si=matrix(c(s1,0.5*sqrt(s1*s2),0.5*sqrt(s1*s2),s2),ncol=2)
-spot=c(1000,1500)
-t=matrix(0,nrow=1000,ncol=2)
-p=list(0,0,spot,m,si)
-for(i in 1:1000){
-  t[i,]=gentraj(p,100,1,1)[101,]
-}
-colMeans(t)
-exp(s1*100)
-
-test=gentraj(p,100,1,1)[101,]
 #=========payapply=================
 payapply=function(par,t,dt=1,method=1,payoff,assets=1,N=10000){
   day=1/251
@@ -92,6 +76,28 @@ payapply=function(par,t,dt=1,method=1,payoff,assets=1,N=10000){
   return(res)
 }
 #=========estim=======================
+calcmtg=function(mu,si,rho,spot,r,dt,nassets){
+  day=1/250
+  # Parametry zwrotu w mierze mtg (po uproszczeniu):
+  mu_mtg=rep(0,nassets)
+  si_mtg=rho
+  si_mtg=si_mtg*2*r*dt*day
+  # Pochodna R-N wykorzystuje gęstość rozkładów normalnych:
+  # standardowego i pochodzącego z miary mtg. Ale nie jest to rozkład z parametrami wyżej, tylko 
+  # Parametry miary Q do pochodnej RN:
+  mu_qrn=-mu/si
+  si_q=sqrt(2*r*dt*day)/si
+  si_qrn=rho
+  for(i in 1:nassets){
+    si_qrn[i,]=si_qrn[i,]*si_q
+    si_qrn[,i]=si_qrn[,i]*si_q
+  }
+  dqdp=function(x){
+    dmvnorm(x,mu_qrn,si_qrn)/dmvnorm(x)
+  }
+  res=list(mu,si,rho,spot,mu_mtg,si_mtg,dqdp,r)
+  return(res)
+}
 estim=function(pricedata,r,t=0,dt=1,t_spot=0){
   # data - każda kolumna zawiera wektor cen (zamknięcia) danego aktywa
   # t - w dniach okres z którego estymujemy
@@ -130,24 +136,7 @@ estim=function(pricedata,r,t=0,dt=1,t_spot=0){
   diag(rho)=1
   # Ceny spot:
   spotprice=pricedata[end,]
-  # Parametry zwrotu w mierze mtg (po uproszczeniu):
-  mu_mtg=rep(0,N)
-  si_mtg=rho
-  si_mtg=si_mtg*2*r*dt*day
-  # Pochodna R-N wykorzystuje gęstość rozkładów normalnych:
-  # standardowego i pochodzącego z miary mtg. Ale nie jest to rozkład z parametrami wyżej, tylko 
-  # Parametry miary Q do pochodnej RN:
-  mu_qrn=-mu_c/si_c
-  si_q=sqrt(2*r*dt*day)/si_c
-  si_qrn=rho
-  for(i in 1:N){
-    si_qrn[i,]=si_qrn[i,]*si_q
-    si_qrn[,i]=si_qrn[,i]*si_q
-  }
-  dqdp=function(x){
-    dmvnorm(x,mu_qrn,si_qrn)/dmvnorm(x)
-  }
-  res=list(mu_c,si_c,rho,spotprice,mu_mtg,si_mtg,dqdp,r)
+  res=calcmtg(mu_c,si_c,rho,spotprice,r,dt,N)
   return(res)
 }
 #=========Moje testy==================
