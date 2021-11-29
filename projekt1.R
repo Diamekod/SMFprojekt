@@ -39,6 +39,9 @@ r = 0.01349
 #=========Funkcje==================
 #=========gentraj==================
 gentraj=function(par,t,dt,method){
+  # Dla metody 1 zwraca macierz cen
+  # Dla metody 2 zwraca listę - macierz cen wg miary inwestora
+  # oraz pochodną RN wyliczoną na cały okres - iloczyn pochodnych wyliczonych dla zwrotów w poszczególnych chwilach
   # Metoda generowania wprost z miary mtg
   if(method==1){
     mu=par[[5]]
@@ -58,7 +61,27 @@ gentraj=function(par,t,dt,method){
     return(res)
   }
   if(method==2){
-    
+    mu=par[[1]]
+    si=par[[2]]
+    rho=par[[3]]
+    pricestart=par[[4]]
+    dRN=par[[7]]
+    # s_{i+1}=s_i*exp(N)
+    # generujemy N z odpowiedniego rozkładu, żeby było mtg
+    amount=t/dt
+    # Kolumna ma długość równą liczbie aktywów.
+    res=matrix(0,ncol=length(mu),nrow=amount+1)
+    res_dRN=1
+    res[1,]=pricestart
+    rand=rmvnorm(amount,rep(0,length(mu)),rho)
+    res_dRN=apply(rand,1,dRN)
+    res_dRN=prod(res_dRN)
+    rand=t(t(rand)*si+mu)
+    rand=apply(rand,2,cumsum)
+    # print(colMeans(rand))
+    rand=exp(rand)
+    res[-1,]=t(t(rand)*pricestart)
+    return(list(res,res_dRN))
   }
   return(NULL)
 }
@@ -67,13 +90,28 @@ payapply=function(par,t,dt=1,method=1,payoff,assets=1,N=10000){
   day=1/251
   res=c()
   r=par[[8]]
-  for(i in 1:N){
-    traj=gentraj(par,t,dt,method)
-    pay=payoff(traj[,assets])
-    res[i]=pay
+  if(method==1){
+    for(i in 1:N){
+      traj=gentraj(par,t,dt,method)
+      pay=payoff(traj[,assets])
+      res[i]=pay
+    }
+    res=res*exp(-r*t*day)
+    return(res)
   }
-  res=res*exp(-r*t*day)
-  return(res)
+  if(method==2){
+    for(i in 1:N){
+      traj=gentraj(par,t,dt,method)
+      dRN=traj[[2]]
+      tr=traj[[1]]
+      pay=payoff(tr[,assets])
+      res[i]=pay*dRN
+      #print(i)
+    }
+    res=res*exp(-r*t*day)
+    return(res)
+  }
+  return(NULL)
 }
 #=========estim=======================
 calcmtg=function(mu,si,rho,spot,r,dt,nassets){
@@ -213,9 +251,18 @@ wig_m=matrix(wig,ncol=1)
 param=estim(pricedata=wig_m,r)
 
 t1=gentraj(param,texp,1,1)
+t2=gentraj(param,texp,1,2)
+
 # EC up and out:
-call2200=payapply(param,texp,payoff=payoffuao)
+call2200=payapply(param,texp,payoff=payoffuao,method=1)
 mean(call2200)
+
+# Różnica w tempie zbieżności:
+call2200_1=payapply(param,texp,payoff=payofftest,method=1,N=100)
+call2200_2=payapply(param,texp,payoff=payofftest,method=2,N=100)
+
+mean(call2200_1)
+mean(call2200_2)
 
 library(fOptions)
 sbs=param[[2]]*sqrt(250)
@@ -229,6 +276,16 @@ mean(payapply(param2,texp,payoff=payofftest))
 # Opcja lookback:
 mean(payapply(param2,texp,payoff=payofflb,assets=c(1,2)))
 
+
+
+
+#=========Stare testy==================
+g=function(y){
+  f=function(x){x+y}
+  return(f)
+}
+b=g(3)
+b(4)
 
 si=matrix(c(1,0.5,0.5,1),ncol=2)
 m=c(1,0.3)
@@ -244,14 +301,6 @@ a*c(1,2)
 t(t(a)*c(1,2))
 # Sumowanie kolumnowo:
 apply(a,2,cumsum)
-
-#=========Stare testy==================
-g=function(y){
-  f=function(x){x+y}
-  return(f)
-}
-b=g(3)
-b(4)
 
 #przyrosty:
 pr=wig[-1]/wig[-length(wig)]
