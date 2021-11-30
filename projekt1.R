@@ -38,7 +38,7 @@ library(mvtnorm)
 r = 0.01349
 #=========Funkcje==================
 #=========gentraj==================
-gentraj=function(par,t,dt,method){
+gentraj=function(par,t,dt,method=1){
   # Dla metody 1 zwraca macierz cen
   # Dla metody 2 zwraca listę - macierz cen wg miary inwestora
   # oraz pochodną RN wyliczoną na cały okres - iloczyn pochodnych wyliczonych dla zwrotów w poszczególnych chwilach
@@ -131,7 +131,7 @@ calcmtg=function(mu,si,rho,spot,r,dt,nassets){
     si_qrn[,i]=si_qrn[,i]*si_q
   }
   dqdp=function(x){
-    dmvnorm(x,mu_qrn,si_qrn)/dmvnorm(x)
+    dmvnorm(x,mu_qrn,si_qrn)/dmvnorm(x,sigma=rho)
   }
   res=list(mu,si,rho,spot,mu_mtg,si_mtg,dqdp,r)
   return(res)
@@ -164,7 +164,7 @@ estim=function(pricedata,r,t=0,dt=1,t_spot=0){
   for(i in 1:N){
     ret[,i]=log(pricedata[-1,i]/pricedata[-end,i])
     mu_c[i]=mean(ret[,i])
-    si_c=sd(ret[,i])
+    si_c[i]=sd(ret[,i])
   }
   for(i in 1:N){
     for (j in i:N){
@@ -249,36 +249,46 @@ wig=wig20[124:311,5]
 kgh=kghm[124:311,5]
 wig_m=matrix(wig,ncol=1)
 param=estim(pricedata=wig_m,r)
+wigkgh_m=matrix(c(wig,kgh),ncol=2)
+param2=estim(pricedata=wigkgh_m,r)
 
 t1=gentraj(param,texp,1,1)
 t2=gentraj(param,texp,1,2)
 
 # EC up and out:
-call2200=payapply(param,texp,payoff=payoffuao,method=1)
-mean(call2200)
+#call2200=payapply(param,texp,payoff=payoffuao,method=1)
+#mean(call2200)
 
 # Różnica w tempie zbieżności:
-call2200_1=payapply(param,texp,payoff=payofftest,method=1,N=100)
-call2200_2=payapply(param,texp,payoff=payofftest,method=2,N=100)
-
+call2200_1=payapply(param,texp,payoff=payofftest,method=1,N=40000)
+call2200_2=payapply(param,texp,payoff=payofftest,method=2,N=40000)
 mean(call2200_1)
 mean(call2200_2)
+mean(call2200_2[30001:40000])
+
+
+lb2200_1=payapply(param2,texp,payoff=payofflb,method=1,assets=c(1,2),N=40000)
+lb2200_2=payapply(param2,texp,payoff=payofflb,method=2,assets=c(1,2),N=40000)
+mean(lb2200_1)
+mean(lb2200_2)
+
+
+uai2200_1=payapply(param,texp,payoff=payoffuai,method=1,N=40000)
+uai2200_2=payapply(param,texp,payoff=payoffuai,method=2,N=40000)
+mean(uai2200_2)
+mean(uai2200_1)
+
+
 
 library(fOptions)
 sbs=param[[2]]*sqrt(250)
 GBSOption('c',wig[188],2200,texp/250,r,r,sbs)@price
 
-wigkgh_m=matrix(c(wig,kgh),ncol=2)
-param2=estim(pricedata=wigkgh_m,r)
 t2=gentraj(param2,texp,1,1)
 # EC w modelu dwuaktywowym:
 mean(payapply(param2,texp,payoff=payofftest))
 # Opcja lookback:
 mean(payapply(param2,texp,payoff=payofflb,assets=c(1,2)))
-
-
-
-
 #=========Stare testy==================
 g=function(y){
   f=function(x){x+y}
